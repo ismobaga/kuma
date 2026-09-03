@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 
@@ -183,35 +184,61 @@ def push_to_github(parquet_path: Path, batch_name: str) -> bool:
         return False
 
     try:
+        safe_batch_name = (
+            batch_name
+            if re.fullmatch(r"batch_\d+", batch_name or "")
+            else f"batch_{int(datetime.now().timestamp())}"
+        )
         repo_dir = BASE_DIR / "yan_kuma_data"
         if not repo_dir.exists():
             git_url = f"https://{GITHUB_USER}:{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
-            subprocess.run(
-                f"git clone --branch {GIT_DATA_BRANCH} {git_url} {repo_dir} "
-                f"2>/dev/null || git clone {git_url} {repo_dir} && cd {repo_dir} && "
-                f"git checkout -b {GIT_DATA_BRANCH} 2>/dev/null || true",
-                shell=True,
+            cloned = subprocess.run(
+                ["git", "clone", "--branch", GIT_DATA_BRANCH, git_url, str(repo_dir)],
                 check=False,
                 capture_output=True,
+                text=True,
             )
+            if cloned.returncode != 0:
+                subprocess.run(
+                    ["git", "clone", git_url, str(repo_dir)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                subprocess.run(
+                    ["git", "checkout", "-b", GIT_DATA_BRANCH],
+                    cwd=repo_dir,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
 
-        (repo_dir / f"{batch_name}.parquet").write_bytes(parquet_path.read_bytes())
+        (repo_dir / f"{safe_batch_name}.parquet").write_bytes(parquet_path.read_bytes())
 
         subprocess.run(
-            f"cd {repo_dir} && git config user.email {GITHUB_EMAIL} && git config user.name {GITHUB_USER}",
-            shell=True,
+            ["git", "config", "user.email", GITHUB_EMAIL],
+            cwd=repo_dir,
             check=False,
         )
         subprocess.run(
-            f"cd {repo_dir} && git add . && git commit -m 'Add batch: {batch_name}' 2>/dev/null",
-            shell=True,
+            ["git", "config", "user.name", GITHUB_USER],
+            cwd=repo_dir,
             check=False,
         )
+        subprocess.run(["git", "add", "."], cwd=repo_dir, check=False)
         subprocess.run(
-            f"cd {repo_dir} && git push -u origin {GIT_DATA_BRANCH} 2>/dev/null",
-            shell=True,
+            ["git", "commit", "-m", f"Add batch: {safe_batch_name}"],
+            cwd=repo_dir,
             check=False,
             capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "push", "-u", "origin", GIT_DATA_BRANCH],
+            cwd=repo_dir,
+            check=False,
+            capture_output=True,
+            text=True,
         )
 
         return True
@@ -245,6 +272,13 @@ def _safe_upload_name(filename: str) -> str:
     if not name:
         raise HTTPException(status_code=400, detail="Invalid filename")
     return name
+
+
+def _safe_batch_name(name: str, default: str = "batch") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name or "").strip("._-")
+    if not cleaned:
+        return default
+    return cleaned[:120]
 
 
 @app.post("/upload-local")
@@ -325,7 +359,10 @@ async def upload_youtube(url: str):
 
     segments = extract_frames(video_path, segment_by_silence(str(audio_path)))
 
-    batch_name = f"youtube_{info.get('id', 'unknown')}_{datetime.now().strftime('%H%M%S')}"
+    batch_name = _safe_batch_name(
+        f"youtube_{info.get('id', 'unknown')}_{datetime.now().strftime('%H%M%S')}",
+        default=f"youtube_{datetime.now().strftime('%H%M%S')}",
+    )
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.execute(
         "INSERT INTO batches (name, created_at) VALUES (?, ?)",
@@ -433,12 +470,13 @@ def export_parquet(batch_id: int, cleanup: bool = True):
 
     batch = conn.execute("SELECT name FROM batches WHERE id = ?", (batch_id,)).fetchone()
     batch_name = batch[0] if batch else f"batch_{batch_id}"
+    safe_batch_name = f"batch_{int(batch_id)}"
     conn.close()
 
     if df.empty:
         raise HTTPException(status_code=400, detail="No segments to export")
 
-    export_path = UPLOAD_DIR / f"{batch_name}_export.parquet"
+    export_path = UPLOAD_DIR / f"{safe_batch_name}_export.parquet"
     df.to_parquet(export_path, index=False)
 
     metadata = {
@@ -450,12 +488,12 @@ def export_parquet(batch_id: int, cleanup: bool = True):
         "total_duration": float(df["duration"].sum()),
     }
 
-    metadata_path = UPLOAD_DIR / f"{batch_name}_metadata.json"
+    metadata_path = UPLOAD_DIR / f"{safe_batch_name}_metadata.json"
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
-    github_ok = push_to_github(export_path, batch_name)
-    hf_ok = push_to_huggingface(export_path, batch_name)
+    github_ok = push_to_github(export_path, safe_batch_name)
+    hf_ok = push_to_huggingface(export_path, safe_batch_name)
 
     if cleanup:
         cleanup_batch_files(batch_id)
