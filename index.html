@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Yan Kuma — Bambara annotation with NER</title>
+  <title>Yan Kuma — Bambara annotation</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
@@ -42,6 +42,10 @@
       width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 8px;
     }
     
+    .search-box { display: flex; gap: 8px; margin-bottom: 12px; }
+    .search-box input { flex: 1; }
+    .search-box button { flex: 0 0 auto; padding: 10px 16px; background: #2196f3; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    
     .frame { width: 100%; height: 200px; background: #222; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; overflow: hidden; }
     .frame img { max-width: 100%; max-height: 100%; object-fit: cover; }
     
@@ -57,12 +61,19 @@
     label { display: block; font-size: 11px; color: #666; font-weight: 500; margin-bottom: 4px; text-transform: uppercase; }
     .help { font-size: 11px; color: #999; margin-top: 4px; }
     .help.optional { color: #bbb; font-style: italic; }
-    textarea { resize: vertical; min-height: 80px; }
+    textarea { resize: vertical; min-height: 80px; font-family: 'Segoe UI', monospace; }
     
-    .entity-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
-    .entity-btn { padding: 8px 6px; border: 1px solid #ddd; background: white; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
-    .entity-btn:active { background: #e3f2fd; border-color: #2196f3; transform: scale(0.95); }
-    .entity-btn:hover { border-color: #2196f3; }
+    .char-palette { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 12px; }
+    .char-btn { padding: 8px 4px; border: 1px solid #ddd; background: white; border-radius: 4px; font-size: 16px; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .char-btn:active { background: #e3f2fd; border-color: #2196f3; transform: scale(0.95); }
+    .char-btn:hover { border-color: #2196f3; }
+    .char-btn-label { font-size: 8px; color: #999; }
+    
+    .asr-section { background: #f0f8ff; border-left: 4px solid #2196f3; padding: 12px; border-radius: 4px; margin-bottom: 12px; }
+    .asr-btn { background: #2196f3; color: white; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+    .asr-btn:active { background: #1976d2; }
+    .asr-loading { display: inline-block; width: 12px; height: 12px; border: 2px solid #f3f3f3; border-top: 2px solid #2196f3; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     
     button { flex: 1; padding: 12px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
     .btn-primary { background: #4caf50; color: white; }
@@ -89,16 +100,11 @@
     .export-status { font-size: 12px; color: #1565c0; }
     
     .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #f3f3f3; border-top: 2px solid #2196f3; border-radius: 50%; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    
-    .footer { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; gap: 8px; }
-    .footer button { flex: 1; padding: 12px; }
     
     @media (orientation: landscape) {
       .container { flex-direction: row; }
-      .header { flex: 0 0 auto; border-bottom: none; border-right: 1px solid #eee; width: 240px; height: 100vh; padding: 20px; }
+      .header { flex: 0 0 auto; border-bottom: none; border-right: 1px solid #eee; width: 240px; height: 100vh; padding: 20px; overflow-y: auto; }
       .main { flex: 1; }
-      .footer { flex: 0 0 auto; }
     }
   </style>
 </head>
@@ -116,6 +122,7 @@
     </div>
     
     <div class="main" id="content">
+      <!-- Upload section -->
       <div id="upload-section" class="section">
         <h2>Upload video</h2>
         
@@ -141,6 +148,19 @@
         </div>
       </div>
       
+      <!-- Search section (hidden until upload) -->
+      <div id="search-section" class="section hidden">
+        <h2>Search segments</h2>
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="Search transcript...">
+          <button onclick="searchSegments()">🔍 Find</button>
+        </div>
+        <div id="search-results" class="hidden">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;" id="search-count"></div>
+        </div>
+      </div>
+      
+      <!-- Annotation section (hidden until upload) -->
       <div id="annotation-section" class="section hidden">
         <h2>Annotate</h2>
         
@@ -166,7 +186,30 @@
         </div>
         <audio id="audio" style="display: none;"></audio>
         
+        <!-- ASR pre-fill section -->
+        <div class="asr-section">
+          <label style="color: #1976d2; margin-bottom: 8px;">Auto-transcribe (ASR)</label>
+          <button class="asr-btn" id="asr-btn" onclick="asrTranscribe()">
+            <span id="asr-btn-text">🎤 Auto-transcribe segment</span>
+          </button>
+          <div id="asr-status" class="help" style="margin-top: 6px;"></div>
+        </div>
+        
         <div>
+          <label>Bambara transcript</label>
+          <div class="char-palette">
+            <button class="char-btn" onclick="insertChar('ɲ')" title="Palatal nasal"><div>ɲ</div><div class="char-btn-label">Ɲ</div></button>
+            <button class="char-btn" onclick="insertChar('ŋ')" title="Velar nasal"><div>ŋ</div><div class="char-btn-label">Ŋ</div></button>
+            <button class="char-btn" onclick="insertChar('ɛ')" title="Open-mid front"><div>ɛ</div><div class="char-btn-label">Ɛ</div></button>
+            <button class="char-btn" onclick="insertChar('ɔ')" title="Open-mid back"><div>ɔ</div><div class="char-btn-label">Ɔ</div></button>
+            <button class="char-btn" onclick="insertChar('ɔ̃')" title="Nasalized ɔ"><div>ɔ̃</div><div class="char-btn-label">Ɔ̃</div></button>
+            <button class="char-btn" onclick="insertChar('ɛ̃')" title="Nasalized ɛ"><div>ɛ̃</div><div class="char-btn-label">Ɛ̃</div></button>
+          </div>
+          <div class="help">Tip: Click character button or use keyboard: ⌥+j=ɲ, ⌥+k=ŋ, ⌥+e=ɛ, ⌥+o=ɔ</div>
+          <textarea id="transcript" placeholder="Type Bambara transcript. Use [BRACKETS] for names: [Ismail] o b'o jira..."></textarea>
+          <div class="help">Use [BRACKETS] to mark names</div>
+        </div>
+              <div>
           <label>Bambara transcript (with NER)</label>
           <div class="entity-buttons">
             <button class="entity-btn" onclick="insertEntity('PERSON')">👤 Person</button>
@@ -222,6 +265,7 @@
           <button class="btn-warning" onclick="skipSegment()">Skip</button>
         </div>
         
+        <!-- Export section -->
         <div class="export-section">
           <h3>Export & sync</h3>
           <button class="btn-info" style="width: 100%;" onclick="exportParquet()">
@@ -236,5 +280,338 @@
       </div>
     </div>
   </div>
+
+  <script>
+    let segments = [];
+    let currentIdx = 0;
+    let batchId = null;
+    let exporting = false;
+    let asrTranscribing = false;
+    
+    // Keyboard shortcuts for special characters (Alt key)
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const charMap = {
+          'j': 'ɲ',  // Alt+j for ɲ
+          'k': 'ŋ',  // Alt+k for ŋ
+          'e': 'ɛ',  // Alt+e for ɛ
+          'o': 'ɔ',  // Alt+o for ɔ
+        };
+        
+        if (charMap[e.key] && document.getElementById('transcript') === document.activeElement) {
+          e.preventDefault();
+          insertChar(charMap[e.key]);
+        }
+      }
+      
+      // Other shortcuts (when not in text field)
+      if (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') {
+        return;
+      }
+      
+      if (e.code === 'Space' && e.shiftKey) {
+        e.preventDefault();
+        toggleAudio();
+      } else if (e.code === 'Enter') {
+        e.preventDefault();
+        saveSegment();
+      } else if (e.code === 'KeyN' && e.ctrlKey) {
+        e.preventDefault();
+        nextSegment();
+      } else if (e.code === 'KeyP' && e.ctrlKey) {
+        e.preventDefault();
+        prevSegment();
+      } else if (e.code === 'KeyS' && e.ctrlKey) {
+        e.preventDefault();
+        skipSegment();
+      }
+    });
+    
+    function insertChar(char) {
+      const ta = document.getElementById('transcript');
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + char + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + char.length;
+      ta.focus();
+    }
+    
+    function toggleAudio() {
+      const audio = document.getElementById('audio');
+      if (audio.paused) audio.play();
+      else audio.pause();
+    }
+    
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(tab).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+  function insertEntity(type) {
+      const ta = document.getElementById('transcript');
+      const before = ta.value.substring(0, ta.selectionStart);
+      const selected = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+      const after = ta.value.substring(ta.selectionEnd);
+      
+      if (selected) {
+        // Wrap selected text
+        ta.value = before + `[${type}: ${selected}]` + after;
+      } else {
+        // Insert empty tag
+        ta.value = before + `[${type}: ]` + after;
+      }
+      ta.focus();
+      ta.selectionStart = before.length + type.length + 3;
+      ta.selectionEnd = ta.selectionStart;
+    }
+        
+    async function updateStorage() {
+      try {
+        const resp = await fetch('/storage');
+        const data = await resp.json();
+        
+        const percent = data.percent;
+        const bar = document.getElementById('storage-bar');
+        bar.classList.remove('ok', 'warning', 'critical');
+        if (percent > 90) bar.classList.add('critical');
+        else if (percent > 70) bar.classList.add('warning');
+        else bar.classList.add('ok');
+        
+        document.getElementById('storage-fill').style.width = Math.min(percent, 100) + '%';
+        document.getElementById('storage-used').textContent = data.used_mb + ' MB';
+        document.getElementById('storage-percent').textContent = Math.round(data.percent) + '%';
+      } catch (e) {}
+    }
+    
+    async function uploadLocal() {
+      const file = document.getElementById('video-file').files[0];
+      if (!file) return;
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      try {
+        const resp = await fetch('/upload-local', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+        
+        batchId = data.batch_id;
+        if (data.storage_warning) {
+          const w = document.createElement('div');
+          w.className = 'warning';
+          w.textContent = '⚠ Storage running low. Export soon!';
+          document.getElementById('content').insertBefore(w, document.getElementById('annotation-section'));
+        }
+        await loadSegments();
+        showAnnotationUI();
+        updateStorage();
+      } catch (err) {
+        document.getElementById('local-error').textContent = err.message;
+        document.getElementById('local-error').classList.remove('hidden');
+      }
+    }
+    
+    async function uploadYouTube() {
+      const url = document.getElementById('youtube-url').value.trim();
+      if (!url) {
+        document.getElementById('youtube-error').textContent = 'Paste YouTube URL';
+        document.getElementById('youtube-error').classList.remove('hidden');
+        return;
+      }
+      
+      try {
+        const resp = await fetch(`/upload-youtube?url=${encodeURIComponent(url)}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Download failed');
+        
+        batchId = data.batch_id;
+        await loadSegments();
+        showAnnotationUI();
+        updateStorage();
+      } catch (err) {
+        document.getElementById('youtube-error').textContent = err.message;
+        document.getElementById('youtube-error').classList.remove('hidden');
+      }
+    }
+    
+    async function loadSegments() {
+      const resp = await fetch(`/segments?batch_id=${batchId}`);
+      segments = await resp.json();
+      showSegment(0);
+    }
+    
+    function showAnnotationUI() {
+      document.getElementById('upload-section').classList.add('hidden');
+      document.getElementById('search-section').classList.remove('hidden');
+      document.getElementById('annotation-section').classList.remove('hidden');
+    }
+    
+    function showSegment(idx) {
+      if (idx < 0 || idx >= segments.length) {
+        alert(idx < 0 ? 'Start reached' : 'All done!');
+        return;
+      }
+      
+      const seg = segments[idx];
+      currentIdx = idx;
+      
+      document.getElementById('segment-frame').src = seg.frame_path;
+      document.getElementById('audio').src = seg.audio_path;
+      document.getElementById('duration').textContent = seg.duration.toFixed(1) + 's';
+      document.getElementById('transcript').value = seg.transcript_bm || '';
+      document.getElementById('translation').value = seg.translation_fr || '';
+      document.getElementById('show').value = seg.show || '';
+      document.getElementById('episode').value = seg.episode || '';
+      
+      document.getElementById('asr-status').textContent = '';
+      
+      const annotated = segments.filter(s => s.transcript_bm && s.transcript_bm.length > 0).length;
+      const translated = segments.filter(s => s.translation_fr && s.translation_fr.length > 0).length;
+      document.getElementById('progress-text').innerHTML = 
+        `<strong>Segment ${idx + 1} / ${segments.length}</strong> • ${annotated} annotated • ${translated} translated<br><small>Ctrl+N=next, Ctrl+P=prev, Ctrl+S=skip, Shift+Space=play, Alt+e=ɛ, Alt+o=ɔ, Alt+j=ɲ, Alt+k=ŋ</small>`;
+    }
+    
+    async function asrTranscribe() {
+      if (asrTranscribing) return;
+      asrTranscribing = true;
+      
+      const btn = document.getElementById('asr-btn');
+      const status = document.getElementById('asr-status');
+      const seg = segments[currentIdx];
+      
+      btn.disabled = true;
+      btn.innerHTML = '<span class="asr-loading"></span> Transcribing...';
+      status.textContent = 'Processing audio...';
+      
+      try {
+        const resp = await fetch('/asr-transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio_path: seg.audio_path })
+        });
+        
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'ASR failed');
+        
+        // Fill transcript field
+        const transcript = document.getElementById('transcript');
+        transcript.value = data.transcript;
+        
+        btn.innerHTML = '✓ Transcribed!';
+        status.textContent = `Confidence: ${data.confidence || 'N/A'}. Edit above if needed.`;
+        
+        setTimeout(() => {
+          asrTranscribing = false;
+          btn.disabled = false;
+          btn.innerHTML = '🎤 Auto-transcribe segment';
+        }, 2000);
+      } catch (err) {
+        status.textContent = '✗ ' + err.message;
+        btn.innerHTML = '🎤 Auto-transcribe segment';
+        btn.disabled = false;
+        asrTranscribing = false;
+      }
+    }
+    
+    async function saveSegment() {
+      const transcript = document.getElementById('transcript').value.trim();
+      if (!transcript) {
+        document.getElementById('annotation-error').textContent = 'Enter Bambara transcript';
+        document.getElementById('annotation-error').classList.remove('hidden');
+        return;
+      }
+      
+      const seg = segments[currentIdx];
+      const translation = document.getElementById('translation').value.trim();
+      
+      const resp = await fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          segment_id: seg.id,
+          transcript_bm: transcript,
+          translation_fr: translation,
+          show: document.getElementById('show').value,
+          episode: document.getElementById('episode').value,
+          language: document.getElementById('language').value,
+          content_type: document.getElementById('content_type').value,
+          quality: document.getElementById('quality').value,
+        })
+      });
+      
+      if (resp.ok) {
+        showSegment(currentIdx + 1);
+      }
+    }
+    
+    function nextSegment() { showSegment(currentIdx + 1); }
+    function prevSegment() { showSegment(currentIdx - 1); }
+    function skipSegment() { showSegment(currentIdx + 1); }
+    
+    function searchSegments() {
+      const query = document.getElementById('search-input').value.toLowerCase();
+      if (!query) {
+        document.getElementById('search-results').classList.add('hidden');
+        return;
+      }
+      
+      const results = segments
+        .map((s, idx) => ({ ...s, idx }))
+        .filter(s => (s.transcript_bm || '').toLowerCase().includes(query) || 
+                     (s.show || '').toLowerCase().includes(query));
+      
+      const count = document.getElementById('search-count');
+      count.textContent = `Found ${results.length} segment(s)`;
+      
+      const resultsDiv = document.getElementById('search-results');
+      resultsDiv.innerHTML = `<div style="font-size: 12px; color: #666; margin-bottom: 8px;">${results.map(r => 
+        `<button style="display: block; width: 100%; text-align: left; padding: 8px; margin-bottom: 4px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="showSegment(${r.idx})">
+          Seg ${r.idx + 1}: ${(r.transcript_bm || '').substring(0, 50)}...
+        </button>`
+      ).join('')}</div>`;
+      resultsDiv.classList.remove('hidden');
+    }
+    
+    document.getElementById('play-btn').addEventListener('click', toggleAudio);
+    
+    async function exportParquet() {
+      if (exporting) return;
+      exporting = true;
+      
+      const btn = document.getElementById('export-btn-text');
+      const status = document.getElementById('export-status');
+      btn.innerHTML = '<span class="spinner"></span> Exporting...';
+      status.textContent = 'Uploading to GitHub & Hugging Face...';
+      status.classList.remove('hidden');
+      
+      try {
+        const resp = await fetch(`/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: batchId, cleanup: true })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail);
+        
+        btn.innerHTML = '✓ Exported & synced!';
+        let msg = `Batch saved!`;
+        if (data.github_synced) msg += ' ✓ GitHub';
+        if (data.huggingface_synced) msg += ' ✓ HF';
+        msg += `\n${data.files_cleaned ? 'Files cleaned.' : ''} ${data.storage_mb_after} MB used.`;
+        status.textContent = msg;
+        
+        updateStorage();
+        setTimeout(() => { exporting = false; btn.innerHTML = '📥 Export to Parquet'; }, 2000);
+      } catch (err) {
+        status.textContent = '✗ ' + err.message;
+        btn.innerHTML = '📥 Export to Parquet';
+        exporting = false;
+      }
+    }
+    
+    updateStorage();
+  </script>
 </body>
 </html>

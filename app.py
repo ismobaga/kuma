@@ -25,6 +25,25 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
 DB_PATH = str(BASE_DIR / "yan_kuma.db")
 UPLOAD_DIR.mkdir(exist_ok=True)
+ASR_MODEL = os.getenv("ASR_MODEL", "facebook/wav2vec2-large-xlsr-53-bambara")
+
+# ASR setup (optional, graceful fallback)
+asr_model = None
+asr_processor = None
+asr_available = False
+
+try:
+    from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+    import torch
+    asr_processor = Wav2Vec2Processor.from_pretrained(ASR_MODEL)
+    asr_model = Wav2Vec2ForCTC.from_pretrained(ASR_MODEL)
+    asr_available = True
+    print(f"✓ ASR model loaded: {ASR_MODEL}")
+except ImportError:
+    print("⚠ Transformers not installed. ASR disabled.")
+    print("  Install with: pip install transformers torch")
+except Exception as e:
+    print(f"⚠ ASR not available: {e}")
 
 # Storage limits (in MB)
 MAX_STORAGE_MB = int(os.getenv("MAX_STORAGE_MB", "500"))
@@ -423,6 +442,37 @@ def get_storage_info():
         "percent": round(100 * used_mb / MAX_STORAGE_MB, 1),
         "warning": used_mb > MAX_STORAGE_MB,
     }
+
+
+@app.post("/asr-transcribe")
+def asr_transcribe(audio_path: str):
+    """Auto-transcribe audio segment using ASR"""
+    if not asr_available or not asr_model or not asr_processor:
+        raise HTTPException(status_code=400, detail="ASR model not available. Install transformers: pip install transformers torch")
+    
+    try:
+        import torch
+        
+        # Load audio
+        speech, sr = librosa.load(audio_path, sr=16000)
+        
+        # Prepare input
+        input_values = asr_processor(speech, sampling_rate=16000, return_tensors="pt").input_values
+        
+        # Transcribe
+        with torch.no_grad():
+            logits = asr_model(input_values).logits
+        
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcript = asr_processor.batch_decode(predicted_ids)[0]
+        
+        return {
+            "transcript": transcript,
+            "confidence": "auto",
+            "model": ASR_MODEL
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"ASR failed: {str(e)}")
 
 
 @app.post("/save")

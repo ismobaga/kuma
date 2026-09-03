@@ -8,3 +8,5 @@ yt-dlp
 pandas
 pyarrow
 numpy
+transformers 
+torch
