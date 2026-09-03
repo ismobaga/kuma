@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Yan Kuma — Bambara annotation with NER</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+    
+    .container { max-width: 100vw; min-height: 100vh; display: flex; flex-direction: column; }
+    
+    .header { background: white; padding: 12px 16px; border-bottom: 1px solid #eee; position: sticky; top: 0; z-index: 100; }
+    .header h1 { font-size: 18px; color: #333; margin-bottom: 8px; }
+    
+    .storage-bar { height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; }
+    .storage-bar.ok .fill { background: #4caf50; }
+    .storage-bar.warning .fill { background: #ff9800; }
+    .storage-bar.critical .fill { background: #d32f2f; }
+    .storage-info { font-size: 11px; color: #666; margin-top: 4px; display: flex; justify-content: space-between; }
+    
+    .main { flex: 1; overflow-y: auto; padding: 16px; }
+    
+    .section { background: white; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .section h2 { font-size: 13px; font-weight: 600; color: #666; margin-bottom: 12px; text-transform: uppercase; }
+    
+    .upload-area { background: #f9f9f9; border: 2px dashed #ddd; border-radius: 8px; padding: 32px 16px; text-align: center; cursor: pointer; }
+    .upload-area:active { background: #f0f0f0; }
+    .upload-area-icon { font-size: 32px; margin-bottom: 8px; }
+    .upload-area-text { font-size: 14px; color: #333; }
+    .upload-area-hint { font-size: 12px; color: #999; margin-top: 4px; }
+    
+    input[type="file"] { display: none; }
+    
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tab-btn { flex: 1; padding: 10px; border: 1px solid #ddd; background: white; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .tab-btn.active { background: #2196f3; color: white; border-color: #2196f3; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
+    input[type="text"], textarea, select { 
+      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; margin-bottom: 8px;
+    }
+    
+    .frame { width: 100%; height: 200px; background: #222; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; overflow: hidden; }
+    .frame img { max-width: 100%; max-height: 100%; object-fit: cover; }
+    
+    .audio-player { background: #f0f0f0; padding: 12px; border-radius: 6px; display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .play-btn { width: 44px; height: 44px; border-radius: 22px; background: #2196f3; border: none; color: white; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+    .play-btn:active { background: #1976d2; }
+    .progress-bar { flex: 1; height: 4px; background: #ddd; border-radius: 2px; }
+    .time { font-size: 12px; color: #666; min-width: 35px; text-align: right; }
+    
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    
+    label { display: block; font-size: 11px; color: #666; font-weight: 500; margin-bottom: 4px; text-transform: uppercase; }
+    .help { font-size: 11px; color: #999; margin-top: 4px; }
+    .help.optional { color: #bbb; font-style: italic; }
+    textarea { resize: vertical; min-height: 80px; }
+    
+    .entity-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+    .entity-btn { padding: 8px 6px; border: 1px solid #ddd; background: white; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+    .entity-btn:active { background: #e3f2fd; border-color: #2196f3; transform: scale(0.95); }
+    .entity-btn:hover { border-color: #2196f3; }
+    
+    button { flex: 1; padding: 12px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #4caf50; color: white; }
+    .btn-primary:active { background: #45a049; }
+    .btn-secondary { background: #e0e0e0; color: #333; }
+    .btn-secondary:active { background: #d0d0d0; }
+    .btn-warning { background: #ff9800; color: white; }
+    .btn-warning:active { background: #e68900; }
+    .btn-info { background: #2196f3; color: white; }
+    .btn-info:active { background: #1976d2; }
+    
+    .controls { display: flex; gap: 8px; margin-bottom: 12px; }
+    
+    .progress-info { background: #f9f9f9; padding: 12px; border-radius: 6px; text-align: center; font-size: 13px; color: #666; margin-bottom: 12px; }
+    
+    .error { color: #d32f2f; font-size: 12px; margin-top: 4px; padding: 8px; background: #ffebee; border-radius: 4px; }
+    .success { color: #4caf50; font-size: 12px; margin-top: 4px; padding: 8px; background: #e8f5e9; border-radius: 4px; }
+    .warning { color: #ff9800; font-size: 12px; margin-top: 4px; padding: 8px; background: #fff3e0; border-radius: 4px; }
+    
+    .hidden { display: none; }
+    
+    .export-section { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px; border-radius: 4px; margin-bottom: 12px; }
+    .export-section h3 { font-size: 13px; font-weight: 600; color: #1976d2; margin-bottom: 8px; }
+    .export-status { font-size: 12px; color: #1565c0; }
+    
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #f3f3f3; border-top: 2px solid #2196f3; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    .footer { background: white; padding: 12px 16px; border-top: 1px solid #eee; display: flex; gap: 8px; }
+    .footer button { flex: 1; padding: 12px; }
+    
+    @media (orientation: landscape) {
+      .container { flex-direction: row; }
+      .header { flex: 0 0 auto; border-bottom: none; border-right: 1px solid #eee; width: 240px; height: 100vh; padding: 20px; }
+      .main { flex: 1; }
+      .footer { flex: 0 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Yan Kuma</h1>
+      <div class="storage-bar ok" id="storage-bar">
+        <div class="fill" id="storage-fill" style="width: 0%"></div>
+      </div>
+      <div class="storage-info" id="storage-info">
+        <span id="storage-used">0 MB</span>
+        <span id="storage-percent">0%</span>
+      </div>
+    </div>
+    
+    <div class="main" id="content">
+      <div id="upload-section" class="section">
+        <h2>Upload video</h2>
+        
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('local')">Local</button>
+          <button class="tab-btn" onclick="switchTab('youtube')">YouTube</button>
+        </div>
+        
+        <div id="local" class="tab-content active">
+          <div class="upload-area" onclick="document.getElementById('video-file').click()">
+            <div class="upload-area-icon">📹</div>
+            <div class="upload-area-text">Tap to upload</div>
+            <div class="upload-area-hint">MP4, WebM, or MOV</div>
+          </div>
+          <input type="file" id="video-file" accept="video/*" onchange="uploadLocal()">
+          <div id="local-error" class="error hidden"></div>
+        </div>
+        
+        <div id="youtube" class="tab-content">
+          <input type="text" id="youtube-url" placeholder="Paste YouTube link">
+          <button class="btn-info" onclick="uploadYouTube()">Download & segment</button>
+          <div id="youtube-error" class="error hidden"></div>
+        </div>
+      </div>
+      
+      <div id="annotation-section" class="section hidden">
+        <h2>Annotate</h2>
+        
+        <div class="frame">
+          <img id="segment-frame" src="" alt="segment frame">
+        </div>
+        
+        <div class="grid-2">
+          <div>
+            <label>Show / Source</label>
+            <input type="text" id="show" placeholder="e.g., Jigi Mali">
+          </div>
+          <div>
+            <label>Episode / Date</label>
+            <input type="text" id="episode" placeholder="e.g., S01E02">
+          </div>
+        </div>
+        
+        <div class="audio-player">
+          <button class="play-btn" id="play-btn">▶</button>
+          <div class="progress-bar"></div>
+          <div id="duration" class="time">0s</div>
+        </div>
+        <audio id="audio" style="display: none;"></audio>
+        
+        <div>
+          <label>Bambara transcript (with NER)</label>
+          <div class="entity-buttons">
+            <button class="entity-btn" onclick="insertEntity('PERSON')">👤 Person</button>
+            <button class="entity-btn" onclick="insertEntity('MONEY')">💰 Money</button>
+            <button class="entity-btn" onclick="insertEntity('DATE')">📅 Date</button>
+            <button class="entity-btn" onclick="insertEntity('NUMBER')">🔢 Number</button>
+            <button class="entity-btn" onclick="insertEntity('LOCATION')">📍 Location</button>
+            <button class="entity-btn" onclick="insertEntity('ORG')">🏢 Org</button>
+          </div>
+          <textarea id="transcript" placeholder="Tap entity buttons or type manually. Format: [PERSON: Ismail] o b'o jira ye..."></textarea>
+          <div class="help">Use [TYPE: text] for entities. Tip: select word then tap button to auto-wrap.</div>
+        </div>
+        
+        <div>
+          <label>French translation (optional)</label>
+          <textarea id="translation" placeholder="Translate to French (or leave blank)"></textarea>
+          <div class="help optional">French translation — optional, can add later</div>
+        </div>
+        
+        <div class="grid-3">
+          <div>
+            <label>Language</label>
+            <select id="language">
+              <option>Bambara</option>
+              <option>French</option>
+              <option>Mixed</option>
+            </select>
+          </div>
+          <div>
+            <label>Type</label>
+            <select id="content_type">
+              <option>Dialog</option>
+              <option>News</option>
+              <option>Interview</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label>Quality</label>
+            <select id="quality">
+              <option>Clear</option>
+              <option>Okay</option>
+              <option>Hard</option>
+            </select>
+          </div>
+        </div>
+        
+        <div id="annotation-error" class="error hidden"></div>
+        
+        <div class="controls">
+          <button class="btn-secondary" onclick="prevSegment()">← Prev</button>
+          <button class="btn-primary" onclick="saveSegment()">✓ Save & next</button>
+          <button class="btn-warning" onclick="skipSegment()">Skip</button>
+        </div>
+        
+        <div class="export-section">
+          <h3>Export & sync</h3>
+          <button class="btn-info" style="width: 100%;" onclick="exportParquet()">
+            <span id="export-btn-text">📥 Export to Parquet</span>
+          </button>
+          <div id="export-status" class="export-status hidden"></div>
+        </div>
+        
+        <div class="progress-info">
+          <div id="progress-text">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

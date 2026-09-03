@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+librosa
+soundfile
+opencv-python
+yt-dlp
+pandas
+pyarrow
+numpy
