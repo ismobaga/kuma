@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 # Minimal resource configuration for resource-limited environments
 # Good for: 1 GB RAM servers, low-power devices, Bamako context
