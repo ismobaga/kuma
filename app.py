@@ -31,6 +31,7 @@ ASR_LOAD_ON_STARTUP = os.getenv("ASR_LOAD_ON_STARTUP", "false").lower() in {"1",
 
 # YouTube config
 YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "")
+YOUTUBE_COOKIES_FROM_BROWSER = os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "")
 YOUTUBE_USER_AGENT = os.getenv("YOUTUBE_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
 cookies_content = os.getenv("YOUTUBE_COOKIES_CONTENT")
@@ -423,12 +424,17 @@ def youtube_download_with_retries(url, output_path, max_retries=3):
         'skip_unavailable_fragments': True,
     }
     
-    # Add cookies if available
+    # Add cookies if available (file takes priority over browser extraction)
     if YOUTUBE_COOKIES_FILE and Path(YOUTUBE_COOKIES_FILE).exists():
         ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
         print(f"📍 Using cookies from: {YOUTUBE_COOKIES_FILE}")
+    elif YOUTUBE_COOKIES_FROM_BROWSER:
+        # Format: "browser" or "browser:profile", e.g. "chrome" or "firefox:default-release"
+        browser, _, profile = YOUTUBE_COOKIES_FROM_BROWSER.partition(":")
+        ydl_opts['cookiesfrombrowser'] = (browser, profile or None, None, None)
+        print(f"📍 Using cookies from browser: {YOUTUBE_COOKIES_FROM_BROWSER}")
     else:
-        print("⚠️  No cookies file. If YouTube blocks, set YOUTUBE_COOKIES_FILE in .env")
+        print("⚠️  No cookies configured. If YouTube blocks, set YOUTUBE_COOKIES_FILE or YOUTUBE_COOKIES_FROM_BROWSER in .env")
     
     for attempt in range(max_retries):
         try:
