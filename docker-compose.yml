@@ -25,6 +25,8 @@ services:
       - HF_TOKEN=${HF_TOKEN}
       - HF_REPO_ID=${HF_REPO_ID}
       - ASR_MODEL=${ASR_MODEL:-facebook/wav2vec2-large-xlsr-53-bambara}
+      - YOUTUBE_COOKIES_FILE=${YOUTUBE_COOKIES_FILE:-./cookies.txt}
+      - YOUTUBE_COOKIES_CONTENT=${YOUTUBE_COOKIES_CONTENT}
 
       # Skip ASR for minimal memory footprint
       # ASR_MODEL would add ~2 GB to memory usage

@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import yt_dlp
+import time
 
 app = FastAPI()
 
@@ -27,6 +28,15 @@ DB_PATH = str(BASE_DIR / "yan_kuma.db")
 UPLOAD_DIR.mkdir(exist_ok=True)
 ASR_MODEL = os.getenv("ASR_MODEL", "facebook/wav2vec2-large-xlsr-53-bambara")
 
+# YouTube config
+YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "")
+YOUTUBE_USER_AGENT = os.getenv("YOUTUBE_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+cookies_content = os.getenv("YOUTUBE_COOKIES_CONTENT")
+if cookies_content:
+    with open("cookies.txt", "w") as f:
+        f.write(cookies_content)
+    os.environ["YOUTUBE_COOKIES_FILE"] = "cookies.txt"
 # ASR setup (optional, graceful fallback)
 asr_model = None
 asr_processor = None
@@ -354,71 +364,114 @@ async def upload_local(file: UploadFile = File(...)):
     }
 
 
+def youtube_download_with_retries(url, output_path, max_retries=3):
+    """Download YouTube video with retry logic and cookie support"""
+    
+    ydl_opts = {
+        'format': 'best[height<=480]',
+        'outtmpl': str(output_path),
+        'quiet': False,
+        'no_warnings': False,
+        'socket_timeout': 30,
+        'http_headers': {
+            'User-Agent': YOUTUBE_USER_AGENT
+        },
+        'retries': 5,
+        'fragment_retries': 5,
+        'skip_unavailable_fragments': True,
+    }
+    
+    # Add cookies if available
+    if YOUTUBE_COOKIES_FILE and Path(YOUTUBE_COOKIES_FILE).exists():
+        ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
+        print(f"📍 Using cookies from: {YOUTUBE_COOKIES_FILE}")
+    else:
+        print("⚠️  No cookies file. If YouTube blocks, set YOUTUBE_COOKIES_FILE in .env")
+    
+    for attempt in range(max_retries):
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info), info
+        except yt_dlp.utils.ExtractorError as e:
+            error_msg = str(e)
+            
+            # Check for sign-in required error
+            if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"YouTube requires authentication. Set YOUTUBE_COOKIES_FILE in .env or use direct video link. See YOUTUBE_COOKIES.md for setup."
+                )
+            
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                print(f"⚠️  Download failed (attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                raise HTTPException(status_code=400, detail=f"YouTube download failed: {error_msg}")
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"⚠️  Error (attempt {attempt+1}/{max_retries}). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
+
+            
 @app.post("/upload-youtube")
 async def upload_youtube(url: str):
-    ydl_opts = {
-        "format": "best[height<=480]",
-        "outtmpl": str(UPLOAD_DIR / "youtube_%(id)s"),
-        "quiet": True,
-    }
-
+    """Download + process YouTube video with auth support"""
+    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_path = ydl.prepare_filename(info)
+        video_path, info = youtube_download_with_retries(
+            url,
+            str(UPLOAD_DIR / 'youtube_%(id)s')
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"YouTube download failed: {e}") from e
-
+        raise HTTPException(status_code=400, detail=f"YouTube download failed: {str(e)}")
+    
     audio_path = Path(video_path).with_suffix(".wav")
     try:
         y, sr = librosa.load(video_path, sr=16000)
         sf.write(str(audio_path), y, sr)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Audio extraction failed: {e}") from e
-
-    segments = extract_frames(video_path, segment_by_silence(str(audio_path)))
-
-    batch_name = _safe_batch_name(
-        f"youtube_{info.get('id', 'unknown')}_{datetime.now().strftime('%H%M%S')}",
-        default=f"youtube_{datetime.now().strftime('%H%M%S')}",
-    )
+        raise HTTPException(status_code=400, detail=f"Audio extraction failed: {e}")
+    
+    segments = segment_by_silence(str(audio_path))
+    segments = extract_frames(video_path, segments)
+    
+    batch_name = f"youtube_{info.get('id', 'unknown')}_{datetime.now().strftime('%H%M%S')}"
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.execute(
-        "INSERT INTO batches (name, created_at) VALUES (?, ?)",
-        (batch_name, datetime.now().isoformat()),
-    )
-    batch_id = cursor.lastrowid
+    conn.execute("INSERT INTO batches (name, created_at) VALUES (?, ?)", 
+                 (batch_name, datetime.now().isoformat()))
     conn.commit()
-
+    batch_id = conn.lastrowid
+    conn.close()
+    
+    conn = sqlite3.connect(DB_PATH)
     for seg in segments:
-        conn.execute(
-            """
-            INSERT INTO segments
+        conn.execute("""
+            INSERT INTO segments 
             (batch_id, segment_id, audio_path, frame_path, start_time, end_time, duration)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                batch_id,
-                seg["segment_id"],
-                seg["audio_path"],
-                seg.get("frame_path", ""),
-                seg["start_time"],
-                seg["end_time"],
-                seg["duration"],
-            ),
-        )
+        """, (batch_id, seg['segment_id'], seg['audio_path'], seg.get('frame_path', ''),
+              seg['start_time'], seg['end_time'], seg['duration']))
     conn.commit()
     conn.close()
-
+    
     storage_mb = get_storage_usage_mb()
+    
     return {
         "batch_id": batch_id,
         "segment_count": len(segments),
-        "title": info.get("title", "Unknown"),
+        "title": info.get('title', 'Unknown'),
         "batch_name": batch_name,
         "storage_mb": round(storage_mb, 1),
-        "storage_warning": storage_mb > MAX_STORAGE_MB,
+        "storage_warning": storage_mb > MAX_STORAGE_MB
     }
+
 
 
 @app.get("/segments")
