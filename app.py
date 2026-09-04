@@ -38,7 +38,7 @@ cookies_content = os.getenv("YOUTUBE_COOKIES_CONTENT")
 if cookies_content:
     with open("cookies.txt", "w") as f:
         f.write(cookies_content)
-    os.environ["YOUTUBE_COOKIES_FILE"] = "cookies.txt"
+    os.environ["YOUTUBE_COOKIES_FILE"] = "./cookies.txt"
 # ASR setup (optional, graceful fallback)
 asr_model = None
 asr_processor = None
@@ -422,6 +422,9 @@ def youtube_download_with_retries(url, output_path, max_retries=3):
         'retries': 5,
         'fragment_retries': 5,
         'skip_unavailable_fragments': True,
+        # 'web' is the only client that honors cookies for the bot-check;
+        # other clients (e.g. visionos) ignore cookies and always require sign-in.
+        'extractor_args': {'youtube': {'player_client': ['web']}},
     }
     
     # Add cookies if available (file takes priority over browser extraction)

@@ -7,9 +7,14 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
     curl \
+    unzip \
     build-essential \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install deno (JS runtime required by yt-dlp to solve YouTube's nsig challenge)
+RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y --no-modify-path \
+    && ln -s /root/.deno/bin/deno /usr/local/bin/deno
 
 # Copy requirements
 COPY requirements.txt .
