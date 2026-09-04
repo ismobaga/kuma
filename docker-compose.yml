@@ -43,12 +43,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    networks:
-      - yan-network
 
-networks:
-  yan-network:
-    driver: bridge
 
 volumes:
   uploads:
