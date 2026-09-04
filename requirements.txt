@@ -3,7 +3,7 @@ uvicorn
 python-multipart
 librosa
 soundfile
-opencv-python
+opencv-python-headless
 yt-dlp
 pandas
 pyarrow

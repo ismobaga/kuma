@@ -27,6 +27,7 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads")))
 DB_PATH = str(BASE_DIR / "yan_kuma.db")
 UPLOAD_DIR.mkdir(exist_ok=True)
 ASR_MODEL = os.getenv("ASR_MODEL", "facebook/wav2vec2-large-xlsr-53-bambara")
+ASR_LOAD_ON_STARTUP = os.getenv("ASR_LOAD_ON_STARTUP", "false").lower() in {"1", "true", "yes", "on"}
 
 # YouTube config
 YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "")
@@ -42,18 +43,38 @@ asr_model = None
 asr_processor = None
 asr_available = False
 
-try:
-    from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
-    import torch
-    asr_processor = Wav2Vec2Processor.from_pretrained(ASR_MODEL)
-    asr_model = Wav2Vec2ForCTC.from_pretrained(ASR_MODEL)
-    asr_available = True
-    print(f"✓ ASR model loaded: {ASR_MODEL}")
-except ImportError:
-    print("⚠ Transformers not installed. ASR disabled.")
-    print("  Install with: pip install transformers torch")
-except Exception as e:
-    print(f"⚠ ASR not available: {e}")
+
+def load_asr_model() -> bool:
+    global asr_model, asr_processor, asr_available
+
+    if asr_available and asr_model is not None and asr_processor is not None:
+        return True
+
+    if not ASR_MODEL:
+        print("⚠ ASR model not configured. ASR disabled.")
+        return False
+
+    try:
+        from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+
+        asr_processor = Wav2Vec2Processor.from_pretrained(ASR_MODEL)
+        asr_model = Wav2Vec2ForCTC.from_pretrained(ASR_MODEL)
+        asr_available = True
+        print(f"✓ ASR model loaded: {ASR_MODEL}")
+        return True
+    except ImportError:
+        print("⚠ Transformers not installed. ASR disabled.")
+        print("  Install with: pip install transformers torch")
+        asr_available = False
+        return False
+    except Exception as e:
+        print(f"⚠ ASR not available: {e}")
+        asr_available = False
+        return False
+
+
+if ASR_LOAD_ON_STARTUP:
+    load_asr_model()
 
 # Storage limits (in MB)
 MAX_STORAGE_MB = int(os.getenv("MAX_STORAGE_MB", "500"))
@@ -191,6 +212,9 @@ def segment_by_silence(audio_path: str, min_dur: int = 20, sr: int = 16000) -> l
 
 def extract_frames(video_path: str, segments: list[dict]) -> list[dict]:
     cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise HTTPException(status_code=400, detail=f"Unable to open video file: {video_path}")
+
     fps = cap.get(cv2.CAP_PROP_FPS) or 1
 
     for seg in segments:
@@ -308,6 +332,24 @@ def _safe_batch_name(name: str, default: str = "batch") -> str:
     if not cleaned:
         return default
     return cleaned[:120]
+
+
+def _batch_export_candidates(batch_id: int, batch_name: str | None = None) -> list[Path]:
+    candidates = []
+
+    if batch_name:
+        candidates.append(_safe_batch_name(batch_name, default=f"batch_{batch_id}"))
+
+    candidates.extend([f"batch_{batch_id}", f"{_safe_batch_name(batch_name or 'batch', default=f'batch_{batch_id}')}"])
+
+    ordered = []
+    seen = set()
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+
+    return [UPLOAD_DIR / f"{candidate}_export.parquet" for candidate in ordered]
 
 
 @app.post("/upload-local")
@@ -500,7 +542,7 @@ def get_storage_info():
 @app.post("/asr-transcribe")
 def asr_transcribe(audio_path: str):
     """Auto-transcribe audio segment using ASR"""
-    if not asr_available or not asr_model or not asr_processor:
+    if not load_asr_model():
         raise HTTPException(status_code=400, detail="ASR model not available. Install transformers: pip install transformers torch")
     
     try:
@@ -573,13 +615,13 @@ def export_parquet(batch_id: int, cleanup: bool = True):
 
     batch = conn.execute("SELECT name FROM batches WHERE id = ?", (batch_id,)).fetchone()
     batch_name = batch[0] if batch else f"batch_{batch_id}"
-    safe_batch_name = f"batch_{int(batch_id)}"
+    safe_batch_name = _safe_batch_name(batch_name, default=f"batch_{batch_id}")
     conn.close()
 
     if df.empty:
         raise HTTPException(status_code=400, detail="No segments to export")
 
-    export_path = UPLOAD_DIR / f"{safe_batch_name}_export.parquet"
+    export_path = UPLOAD_DIR / f"batch_{batch_id}_export.parquet"
     df.to_parquet(export_path, index=False)
 
     metadata = {
@@ -591,7 +633,7 @@ def export_parquet(batch_id: int, cleanup: bool = True):
         "total_duration": float(df["duration"].sum()),
     }
 
-    metadata_path = UPLOAD_DIR / f"{safe_batch_name}_metadata.json"
+    metadata_path = UPLOAD_DIR / f"batch_{batch_id}_metadata.json"
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
@@ -629,11 +671,12 @@ def download_export(batch_id: int):
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    export_path = UPLOAD_DIR / f"{batch[0]}_export.parquet"
-    if not export_path.exists():
+    export_candidates = _batch_export_candidates(batch_id, batch[0])
+    export_path = next((candidate for candidate in export_candidates if candidate.exists()), None)
+    if export_path is None:
         raise HTTPException(status_code=404, detail="Export not found")
 
-    return FileResponse(export_path, filename=f"yan_kuma_{batch[0]}.parquet")
+    return FileResponse(export_path, filename=f"yan_kuma_batch_{batch_id}.parquet")
 
 
 @app.get("/", response_class=HTMLResponse)
