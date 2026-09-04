@@ -9,8 +9,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: yan-kuma-app
-    ports:
-      - "8080:8000"
+    # ports:
+    #   - "8080:8000"
     volumes:
       - ./uploads:/app/uploads
       - ./yan_kuma.db:/app/yan_kuma.db
@@ -30,14 +30,14 @@ services:
 
       # Skip ASR for minimal memory footprint
       # ASR_MODEL would add ~2 GB to memory usage
-    deploy:
-      resources:
-        limits:
-          cpus: '1'    # Half a core max
-          memory: 1G     # 1 GB max
-        reservations:
-          cpus: '1'   # 0.25 core reserved
-          memory: 512M   # 512 MB reserved
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'    # Half a core max
+    #       memory: 1G     # 1 GB max
+    #     reservations:
+    #       cpus: '1'   # 0.25 core reserved
+    #       memory: 512M   # 512 MB reserved
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
