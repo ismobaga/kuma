@@ -10,7 +10,7 @@ services:
       dockerfile: Dockerfile
     container_name: yan-kuma-app
     ports:
-      - "8000:8000"
+      - "8080:8000"
     volumes:
       - ./uploads:/app/uploads
       - ./yan_kuma.db:/app/yan_kuma.db
