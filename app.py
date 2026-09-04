@@ -411,7 +411,10 @@ def youtube_download_with_retries(url, output_path, max_retries=3):
     """Download YouTube video with retry logic and cookie support"""
     
     ydl_opts = {
-        'format': 'best[height<=480]',
+        # Progressive (single-file) 480p is rarely available anymore; fall back
+        # to merging separate video/audio streams, then to whatever is best.
+        'format': 'best[height<=480]/bestvideo[height<=480]+bestaudio/best',
+        'merge_output_format': 'mp4',
         'outtmpl': str(output_path),
         'quiet': False,
         'no_warnings': False,
