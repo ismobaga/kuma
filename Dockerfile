@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir \
     librosa==0.10.1 \
     soundfile==0.12.1 \
     opencv-python==4.8.1.78 \
-    yt-dlp==2024.1.1 \
+    yt-dlp==2026.8.19 \
     pandas==2.1.3 \
     pyarrow==14.0.0 \
     numpy==1.24.3 \
